@@ -38,8 +38,7 @@
 
 <body>
   <canvas id="c"></canvas>
-  <div id="hint">WASD = Gerak &nbsp;|&nbsp; E = Perbaiki Lampu &nbsp;|&nbsp; SPACE = Mulai &nbsp;|&nbsp; ESC = Pause
-    &nbsp;|&nbsp; M = Menu</div>
+  <div id="hint">WASD = Gerak &nbsp;|&nbsp; E = Lampu &nbsp;|&nbsp; F = Buang Sampah &nbsp;|&nbsp; SPACE = Mulai &nbsp;|&nbsp; ESC = Pause &nbsp;|&nbsp; M = Menu</div>
   <script>
     const cv = document.getElementById('c'), cx = cv.getContext('2d');
     const W = 1100, H = 620; cv.width = W; cv.height = H;
@@ -47,6 +46,16 @@
     // ── AUDIO (Web Audio API) ──────────────────────────────
     const AC = new (window.AudioContext || window.webkitAudioContext)();
     document.addEventListener('click', () => { if (AC.state === 'suspended') AC.resume(); });
+
+    // ── PRELOAD ASET ──────────────────────────────────────
+    const monsterImg = new Image();
+    monsterImg.src = '../aset/monster-removebg-preview.png';
+    // Preload aset sampah
+    const trashImgs = [new Image(), new Image(), new Image()];
+    trashImgs[0].src = '../aset/sampah/sampah1.png';
+    trashImgs[1].src = '../aset/sampah/sampah2.png';
+    trashImgs[2].src = '../aset/sampah/sampah3.png';
+
     const beep = (f, d, t = 'sine', v = .3, isMusic = false) => {
       const actualV = v * (isMusic ? (typeof volMusic !== 'undefined' ? volMusic : 0.7) : (typeof volSfx !== 'undefined' ? volSfx : 0.8));
       if (actualV <= 0) return;
@@ -58,6 +67,10 @@
     const sfxHit = () => beep(100, .35, 'sawtooth', .5);
     const sfxWin = () => [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, .4), i * 150));
     const sfxLose = () => [440, 349, 294, 220].forEach((f, i) => setTimeout(() => beep(f, .3), i * 100));
+    // Monster mati - sfx ringan
+    const sfxMonsterDie = () => beep(220, .15, 'square', .3);
+    // Monster makan warga - sfx ringan
+    const sfxMonsterEat = () => beep(180, .1, 'square', .25);
     let bgmInt = null;
     const playBGM = () => {
       if (bgmInt) clearInterval(bgmInt);
@@ -93,6 +106,7 @@
     addEventListener('keydown', e => {
       K[e.code] = true; e.preventDefault();
       if (e.code === 'KeyE') fixLamp();
+      if (e.code === 'KeyF') depositTrash();
       if (e.code === 'KeyM') { goToMenu(); }
       if (e.code === 'Escape') {
         if (st === S.PLAY) st = S.PAUSE;
@@ -107,7 +121,36 @@
     addEventListener('keyup', e => K[e.code] = false);
 
     // ── ENTITIES ───────────────────────────────────────────
-    let P, trash, lamps, cars, parts, npcs, pollClouds, raindrops, powerups;
+    let P, trash, lamps, cars, parts, npcs, pollClouds, raindrops, powerups, heartups, bullets, gunups, bins;
+    let heartTimer = 0;
+
+    // Kategori sampah
+    const TRASH_CAT   = ['organik', 'plastik', 'logam'];       // per type
+    const BIN_LABEL   = { organik: 'Organik', plastik: 'Plastik', logam: 'Logam/Kaleng' };
+    const BIN_COLOR   = { organik: '#4caf50', plastik: '#ffd740', logam: '#42a5f5' };
+    const BIN_DARK    = { organik: '#2e7d32', plastik: '#f57f17', logam: '#1565c0' };
+    const BAG_MAX     = 5; // maks sampah dalam tas
+    let mousePos = { x: 0, y: 0 };
+    const cv2 = document.getElementById('c');
+    cv2.addEventListener('mousemove', e => {
+      const r = cv2.getBoundingClientRect();
+      mousePos.x = (e.clientX - r.left) * (cv2.width / r.width);
+      mousePos.y = (e.clientY - r.top)  * (cv2.height / r.height);
+    });
+    cv2.addEventListener('click', e => {
+      if (st !== S.PLAY || !P || !P.hasGun || P.ammo <= 0) return;
+      const r = cv2.getBoundingClientRect();
+      const mx = (e.clientX - r.left) * (cv2.width / r.width);
+      const my = (e.clientY - r.top)  * (cv2.height / r.height);
+      const ang = Math.atan2(my - P.y, mx - P.x);
+      const spd = 430;
+      bullets.push({ x: P.x, y: P.y, vx: Math.cos(ang)*spd, vy: Math.sin(ang)*spd, life: 2.5, r: 5 });
+      P.ammo--;
+      if (P.ammo <= 0) P.hasGun = false;
+      beep(900, .04, 'square', .4);
+      setTimeout(() => beep(650, .05, 'square', .3), 40);
+    });
+
     function goToMenu() { if (bgmInt) clearInterval(bgmInt); bgmInt = null; st = S.MENU; }
 
     const LEVELS = [
@@ -128,10 +171,12 @@
       levelData = LEVELS[currentLevelIdx];
       st = S.PLAY; flash = ''; flashT = 0; lastT = performance.now(); level = currentLevelIdx + 1;
       timer = levelData.time;
-      playBGM();
+      // playBGM(); // BGM dimatikan - hanya SFX
       floats = []; combo = 0; comboT = 0; shakeX = 0; shakeY = 0;
-      P = { x: W / 2, y: 260, vx: 0, vy: 0, r: 16, inv: 0, blink: true, bt: 0, ang: 0, superT: 0 };
-      trash = []; lamps = []; cars = []; parts = []; npcs = []; pollClouds = []; raindrops = []; powerups = [];
+      P = { x: W / 2, y: 260, vx: 0, vy: 0, r: 16, inv: 0, blink: true, bt: 0, facingDir: 1, bobT: 0, superT: 0, hasGun: false, ammo: 0, bag: [] };
+      trash = []; lamps = []; cars = []; parts = []; npcs = []; pollClouds = []; raindrops = []; powerups = []; heartups = []; bullets = []; gunups = []; bins = [];
+
+      heartTimer = 0;
 
       generateMap();
 
@@ -150,24 +195,65 @@
 
     function generateMap() {
       bldg = []; lamps = [];
-      const rows = [{ y: 30, h: 75 }, { y: 175, h: 70 }, { y: 305, h: 60 }, { y: 435, h: 60 }, { y: 545, h: 60 }];
+      // Row bangunan dengan tinggi lebih pendek agar area jalan lebih lega
+      const rows = [
+        { y: 35,  h: 65 },   // atas jalan 1
+        { y: 180, h: 55 },   // bawah jalan 1 / atas jalan 2
+        { y: 315, h: 55 },   // bawah jalan 2 / atas jalan 3
+        { y: 445, h: 55 },   // bawah jalan 3 / atas jalan 4
+        { y: 550, h: 50 },   // bawah jalan 4
+      ];
       rows.forEach(r => {
-        let curX = rand(20, 60);
-        while (curX < W - 80) {
-          let bw = rand(80, 130);
-          if (curX + bw > W - 40) bw = W - 40 - curX;
+        let curX = rand(30, 80); // mulai lebih ke tengah agar pinggir layar selalu bisa dilewati
+        while (curX < W - 100) {
+          let bw = rand(65, 110); // bangunan lebih kecil
+          if (curX + bw > W - 60) break; // jangan sampai mentok kanan
           bldg.push([curX, r.y, bw, r.h]);
-          curX += bw + rand(80, 150);
+          curX += bw + rand(120, 170); // celah minimum 120px (player diameter ~32px, jadi sangat cukup)
         }
       });
 
+      // Hapus bangunan yang terlalu mepet satu sama lain (gap < 90px) di baris yang sama
+      bldg = bldg.filter((b, i) => {
+        const [bx, by, bw] = b;
+        // Cek apakah bangunan kiri dari bangunan ini terlalu dekat
+        const tooClose = bldg.some((b2, j) => {
+          if (j === i) return false;
+          const [b2x, b2y, b2w] = b2;
+          if (Math.abs(b2y - by) > 10) return false; // hanya cek row yang sama
+          const gapRight = bx - (b2x + b2w);
+          return gapRight > 0 && gapRight < 90;
+        });
+        return !tooClose;
+      });
+
       const streetsY = [130, 260, 390, 520];
+      // Tempatkan lampu di pinggir jalan, cek tidak di dalam bangunan
+      const lampXPositions = [150, 380, 610, 840];
       streetsY.forEach(sy => {
-        [200, 550, 900].forEach(lx => {
-          if (Math.random() < 0.7) {
-            lamps.push({ x: lx + rand(-30, 30), y: sy, fixed: false, pulse: 0, life: 0 });
+        lampXPositions.forEach(lx => {
+          if (Math.random() < 0.75) {
+            const lxFinal = lx + rand(-15, 15);
+            const inBldg = bldg.some(([bx, by, bw, bh]) =>
+              lxFinal > bx - 12 && lxFinal < bx + bw + 12 &&
+              sy > by - 30 && sy < by + bh + 5
+            );
+            if (!inBldg) {
+              lamps.push({ x: lxFinal, y: sy, fixed: false, pulse: rand(0, 6.28), life: 0, flickerT: rand(0, 10) });
+            }
           }
         });
+      });
+
+      // 3 kotak sampah di posisi terpisah jauh, tidak dempet
+      const binSpots = [
+        { x: 100,       y: H - 65 },   // kiri bawah
+        { x: W / 2,     y: 65 },       // tengah atas
+        { x: W - 100,   y: H - 65 },   // kanan bawah
+      ];
+      const binTypes = ['organik', 'plastik', 'logam'];
+      binSpots.forEach((pos, i) => {
+        bins.push({ x: pos.x, y: pos.y, type: binTypes[i], r: 22, pulse: 0 });
       });
     }
 
@@ -178,7 +264,7 @@
         ok = dist(x, y, W / 2, H / 2) > 80;
         if (bldg.some(([bx, by, bw, bh]) => x + 11 > bx && x - 11 < bx + bw && y + 11 > by - 25 && y - 11 < by + bh)) ok = false;
       } while (!ok);
-      npcs.push({ x, y, r: 11, vx: 0, vy: 0, scared: false, scaredT: 0, tx: x, ty: y, wt: rand(1, 3), col: `hsl(${~~rand(20, 340)},70%,65%)`, dir: 1 });
+      npcs.push({ x, y, r: 11, vx: 0, vy: 0, scared: false, scaredT: 0, tx: x, ty: y, wt: rand(1, 3), col: `hsl(${~~rand(20, 340)},70%,65%)`, capCol: `hsl(${~~rand(0, 360)},75%,55%)`, facingDir: 1, bobT: rand(0, 10) });
     }
 
     function spawnPollCloud() {
@@ -211,6 +297,26 @@
         if (bldg.some(([bx, by, bw, bh]) => x + 16 > bx && x - 16 < bx + bw && y + 16 > by - 25 && y - 16 < by + bh)) ok = false;
       } while (!ok);
       powerups.push({ x, y, r: 16, bob: rand(0, 6.28) });
+    }
+
+    function spawnGunup() {
+      if (gunups.length > 0) return;
+      let x, y, ok;
+      do {
+        x = rand(100, W - 100); y = rand(100, H - 100); ok = true;
+        if (bldg.some(([bx, by, bw, bh]) => x+14>bx && x-14<bx+bw && y+14>by-25 && y-14<by+bh)) ok = false;
+      } while (!ok);
+      gunups.push({ x, y, r: 14, bob: rand(0, 6.28) });
+    }
+
+    function spawnHeartup() {
+      if (heartups.length >= 2) return;
+      let x, y, ok;
+      do {
+        x = rand(100, W - 100); y = rand(100, H - 100); ok = true;
+        if (bldg.some(([bx, by, bw, bh]) => x + 14 > bx && x - 14 < bx + bw && y + 14 > by - 25 && y - 14 < by + bh)) ok = false;
+      } while (!ok);
+      heartups.push({ x, y, r: 14, bob: rand(0, 6.28) });
     }
 
     // ── LOOP ───────────────────────────────────────────────
@@ -252,7 +358,19 @@
       if (K.KeyD || K.ArrowRight) { dx = 1; }
       if (touch.active) { dx += touch.dx; dy += touch.dy; }
       const mag = Math.hypot(dx, dy); if (mag > 1) { dx /= mag; dy /= mag; }
-      P.vx = dx * 210; P.vy = dy * 210;
+
+      // Smooth acceleration / deceleration
+      const maxSpd = 220;
+      const accel = (dx !== 0 || dy !== 0) ? 13 : 20;
+      P.vx += (dx * maxSpd - P.vx) * Math.min(accel * dt, 1);
+      P.vy += (dy * maxSpd - P.vy) * Math.min(accel * dt, 1);
+      if (Math.abs(P.vx) < 1.5 && dx === 0) P.vx = 0;
+      if (Math.abs(P.vy) < 1.5 && dy === 0) P.vy = 0;
+
+      // Update facing direction
+      if (dx < 0) P.facingDir = -1;
+      else if (dx > 0) P.facingDir = 1;
+
       let nextX = P.x + P.vx * dt;
       let nextY = P.y + P.vy * dt;
 
@@ -278,13 +396,6 @@
         if (!collY) P.y = clamp(nextY, P.r + 8, H - P.r - 8);
       }
 
-      if (dx !== 0 || dy !== 0) { P.tAng = Math.atan2(dy, dx); }
-      P.ang = P.ang || 0;
-      let pdiff = (P.tAng || 0) - P.ang;
-      while (pdiff < -Math.PI) pdiff += Math.PI * 2;
-      while (pdiff > Math.PI) pdiff -= Math.PI * 2;
-      P.ang += pdiff * 15 * dt;
-
       if (P.inv > 0) {
         P.inv -= dt; P.bt += dt;
         if (P.bt > .1) { P.blink = !P.blink; P.bt = 0; }
@@ -309,14 +420,21 @@
         }
       });
 
+      // Pungut sampah → masuk tas (bag)
       trash = trash.filter(t => {
         if (dist(P.x, P.y, t.x, t.y) < P.r + t.r) {
-          combo++; comboT = 2.5;
-          const pts = 10 + (combo >= 3 ? 15 : 0);
-          addScore(pts);
-          addFloat(t.x, t.y, '+' + (pts), combo >= 3 ? '#ffd740' : '#69d672');
-          sfxCollect(); burst(t.x, t.y, '#69d672', 8); return false;
-        } return true;
+          if (P.bag.length >= BAG_MAX) {
+            setFlash('Tas Penuh! Buang ke Kotak Dulu (F)', '#ff9800');
+            return true; // jangan ambil
+          }
+          P.bag.push(t.type);
+          sfxCollect();
+          const catName = BIN_LABEL[TRASH_CAT[t.type]];
+          addFloat(t.x, t.y - 10, catName, BIN_COLOR[TRASH_CAT[t.type]]);
+          burst(t.x, t.y, BIN_COLOR[TRASH_CAT[t.type]], 8);
+          return false;
+        }
+        return true;
       });
       if (trash.length < 5 && Math.random() < .01) spawnTrash(1);
 
@@ -329,6 +447,50 @@
           return false;
         }
         return true;
+      });
+
+      // Gun pickup spawn
+      if (Math.random() < 0.0004) spawnGunup();
+      gunups = gunups.filter(gu => {
+        if (dist(P.x, P.y, gu.x, gu.y) < P.r + gu.r) {
+          P.hasGun = true; P.ammo = 8;
+          setFlash('Dapat Semprotan! (8x)', '#00e5ff');
+          sfxLamp(); burst(gu.x, gu.y, '#00e5ff', 14);
+          addFloat(gu.x, gu.y, '+Semprotan!', '#00e5ff');
+          return false;
+        }
+        return true;
+      });
+
+      // Heart pickup - spawn every 10 seconds, collect = +1 life (max 5)
+      heartTimer += dt;
+      if (heartTimer >= 10) { spawnHeartup(); heartTimer = 0; }
+      heartups = heartups.filter(hu => {
+        if (dist(P.x, P.y, hu.x, hu.y) < P.r + hu.r) {
+          lives = Math.min(lives + 1, 5);
+          setFlash('+1 Nyawa!', '#ff4081');
+          sfxCollect(); burst(hu.x, hu.y, '#ff4081', 12);
+          return false;
+        }
+        return true;
+      });
+
+      // Update bullets
+      bullets.forEach(b => { b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt; });
+      const hitPcs = new Set();
+      bullets = bullets.filter(b => {
+        if (b.life <= 0 || b.x < 0 || b.x > W || b.y < 0 || b.y > H) return false;
+        let hit = false;
+        pollClouds.forEach(pc => {
+          if (!hitPcs.has(pc) && dist(b.x, b.y, pc.x, pc.y) < pc.r + b.r) {
+            pc.hp--; pc.hitT = 0.35;
+            burst(b.x, b.y, '#00e5ff', 6);
+            addScore(25); addFloat(b.x, b.y - 10, '+25', '#00e5ff');
+            if (pc.hp <= 0) { sfxMonsterDie(); pc._dead = true; hitPcs.add(pc); }
+            hit = true;
+          }
+        });
+        return !hit;
       });
 
       parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; if (!p.conf) p.vy += 60 * dt; p.life -= dt; });
@@ -394,11 +556,10 @@
           }
         }
 
-        n.ang = n.ang || 0;
-        let ndiff = (n.tAng || 0) - n.ang;
-        while (ndiff < -Math.PI) ndiff += Math.PI * 2;
-        while (ndiff > Math.PI) ndiff -= Math.PI * 2;
-        n.ang += ndiff * 10 * dt;
+        // Track NPC facing direction
+        if (n.vx < -5) n.facingDir = -1;
+        else if (n.vx > 5) n.facingDir = 1;
+        n.facingDir = n.facingDir || 1;
       });
 
       pollClouds.forEach(pc => {
@@ -445,6 +606,7 @@
               sfxLamp();
             } else if (!safe) {
               n._dead = true;
+              sfxMonsterEat(); // suara monster makan warga
               score = Math.max(0, score - 20);
               setFlash('Warga Terpapar!', 'orange');
               burst(n.x, n.y, '#ff9800', 10);
@@ -466,11 +628,14 @@
             if (lives <= 0) endGame(false);
           }
         }
-        if (pc.hp <= 0) pc._dead = true;
+        if (pc.hp <= 0) { sfxMonsterDie(); pc._dead = true; } // suara monster mati
       });
       pollClouds = pollClouds.filter(pc => !pc._dead);
       npcs = npcs.filter(n => !n._dead);
       if (pollClouds.length < 2 + level && Math.random() < levelData.cloudRate) spawnPollCloud();
+
+      // Player panic detection - wajah panik kalau monster dekat
+      P.scared = P.superT <= 0 && pollClouds.some(pc => dist(P.x, P.y, pc.x, pc.y) < 160);
 
       if (shakeT > 0) { shakeT -= dt; shakeX = (Math.random() - .5) * shakeM * 2; shakeY = (Math.random() - .5) * shakeM * 2; } else { shakeX = 0; shakeY = 0; }
       if (comboT > 0) { comboT -= dt; } else { combo = 0; }
@@ -502,6 +667,49 @@
       });
     }
 
+    function depositTrash() {
+      if (st !== S.PLAY || !P || P.bag.length === 0) return;
+      // Cari kotak sampah terdekat
+      let closest = null, cd = Infinity;
+      bins.forEach(b => {
+        const d = dist(P.x, P.y, b.x, b.y);
+        if (d < 70 && d < cd) { cd = d; closest = b; }
+      });
+      if (!closest) {
+        setFlash('Dekati Kotak Sampah Dulu!', '#ff9800');
+        return;
+      }
+      // Buang semua sampah dari tas yang cocok dengan kotak ini
+      const binCat = closest.type;
+      let correct = 0, wrong = 0;
+      const newBag = [];
+      P.bag.forEach(type => {
+        if (TRASH_CAT[type] === binCat) {
+          correct++;
+        } else {
+          wrong++;
+          newBag.push(type); // kembalikan ke tas
+        }
+      });
+      P.bag = newBag;
+      if (correct > 0) {
+        const pts = correct * 40;
+        addScore(pts);
+        combo += correct; comboT = 2.5;
+        sfxWin();
+        burst(closest.x, closest.y, BIN_COLOR[binCat], correct * 6);
+        closest.pulse = 1; // animasi bin
+        addFloat(closest.x, closest.y - 30, '+' + pts + ' (' + correct + ' sampah!)', BIN_COLOR[binCat]);
+        setFlash('Benar! +' + pts + ' Poin 🎉', BIN_COLOR[binCat]);
+      }
+      if (wrong > 0) {
+        addScore(-wrong * 10);
+        sfxHit();
+        addFloat(closest.x, closest.y - 10, '-' + (wrong*10) + ' Salah Kotak!', '#ff5252');
+        if (correct === 0) setFlash('Salah Kotak! -' + (wrong*10), '#ff5252');
+      }
+    }
+
     function addScore(v) {
       score = Math.max(0, score + v);
       if (score > highscore) { highscore = score; localStorage.setItem('cf_hs', highscore); }
@@ -524,7 +732,7 @@
       cx.clearRect(0, 0, W, H);
       if (st === S.MENU) { drawMenu(); return; }
       cx.save(); cx.translate(shakeX, shakeY);
-      drawBg(); drawLamps(); drawNPCs(); drawPollClouds(); drawPowerups(); drawTrash(); drawCars(); drawParts(); drawPlayer();
+      drawBg(); drawBins(); drawLamps(); drawNPCs(); drawPollClouds(); drawPowerups(); drawHeartups(); drawGunups(); drawTrash(); drawCars(); drawParts(); drawBullets(); drawPlayer();
       drawLighting();
 
       if (levelData.rain && raindrops) {
@@ -553,102 +761,331 @@
       cx.fillText('ESC / SPACE = Lanjut', W / 2, H / 2 + 5);
     }
 
-    function drawCharacter(x, y, vx, vy, bobT, colBody, colSkin, isPlayer, scared, angle, superMode) {
-      cx.save(); cx.translate(x, y);
+    function drawCharacter(x, y, vx, vy, bobT, colBody, colSkin, isPlayer, scared, facingDir, superMode, capCol) {
+      cx.save();
+      cx.translate(x, y);
       const isMoving = Math.abs(vx) > 5 || Math.abs(vy) > 5;
+      const dir = facingDir || 1;
+      const w = bobT;
 
-      cx.fillStyle = 'rgba(0,0,0,0.35)';
-      cx.beginPath(); cx.ellipse(0, 14, 12, 5, 0, 0, Math.PI * 2); cx.fill();
+      // Walk cycle - directional aware
+      const isMovingH = Math.abs(vx) > Math.abs(vy) + 10; // primarily horizontal
+      const isMovingV = Math.abs(vy) > Math.abs(vx) + 10 && isMoving; // primarily vertical
+      const legSwing = isMovingH ? Math.sin(w) * 7 : (isMovingV ? Math.sin(w) * 2.5 : 0);
+      const legLift  = isMovingH ? Math.abs(Math.sin(w)) * 5 : (isMovingV ? Math.abs(Math.sin(w * 2)) * 4 : 0);
+      const armSwing = isMovingH ? Math.sin(w) * 5 : (isMovingV ? Math.sin(w) * 1.5 : 0);
+      const bodyBob  = isMoving ? -Math.abs(Math.sin(w)) * 2.2 + 0.5 : Math.sin(w * 0.4) * 0.4;
+      // Body lean forward when moving horizontally
+      const lean = isMovingH ? dir * 0.07 : 0;
 
-      const bobY = isMoving ? Math.sin(bobT) * 1.5 : Math.sin(bobT * 0.5) * 0.5;
-      cx.translate(0, bobY);
-      cx.rotate(angle);
+      // Ground shadow
+      cx.fillStyle = 'rgba(0,0,0,0.22)';
+      cx.beginPath(); cx.ellipse(0, 18, 14, 4, 0, 0, Math.PI * 2); cx.fill();
 
-      if (superMode) {
-        cx.shadowBlur = 20; cx.shadowColor = '#00ffcc';
-      } else if (isPlayer) {
-        cx.shadowBlur = 15; cx.shadowColor = 'rgba(64,200,240,0.5)';
-      } else if (scared) {
-        cx.shadowBlur = 15; cx.shadowColor = '#ff9800';
-      } else {
-        cx.shadowBlur = 5; cx.shadowColor = colBody;
-      }
+      cx.translate(0, bodyBob - 2);
+      if (lean !== 0) cx.rotate(lean); // forward lean
 
-      // Body
-      cx.fillStyle = colBody;
-      rrect(-6, -10, 15, 20, 6);
+      if (superMode) { cx.shadowBlur = 26; cx.shadowColor = '#00ffcc'; }
+      else if (isPlayer) { cx.shadowBlur = 14; cx.shadowColor = 'rgba(64,195,240,0.6)'; }
+
+      cx.scale(dir, 1);
+
+      // ── BACK LEG ──
+      cx.save(); cx.translate(-4 - legSwing * 0.5, 9 + legLift * 0.2);
+      cx.fillStyle = '#37474f';
+      cx.beginPath(); cx.roundRect(-3.5, 0, 7, 9, 2); cx.fill();
+      cx.fillStyle = '#1a237e';
+      cx.beginPath(); cx.roundRect(-4.5, 8, 9, 4, [0, 0, 2, 2]); cx.fill();
+      cx.restore();
+
+      // ── FRONT LEG ──
+      cx.save(); cx.translate(4 + legSwing * 0.5, 9 - legLift);
+      cx.fillStyle = '#455a64';
+      cx.beginPath(); cx.roundRect(-3.5, 0, 7, 9, 2); cx.fill();
+      cx.fillStyle = '#283593';
+      cx.beginPath(); cx.roundRect(-4.5, 8, 9, 4, [0, 0, 2, 2]); cx.fill();
+      cx.restore();
+
       cx.shadowBlur = 0;
 
-      // Arms
-      const swing = isMoving ? Math.sin(bobT) * 5 : 0;
+      // ── BODY ──
       cx.fillStyle = colBody;
-      cx.beginPath(); cx.arc(2 - swing, -11, 4, 0, Math.PI * 2); cx.fill();
-      cx.beginPath(); cx.arc(2 + swing, 11, 4, 0, Math.PI * 2); cx.fill();
+      cx.beginPath(); cx.roundRect(-11, -6, 22, 18, 7); cx.fill();
+      // Shirt collar highlight
+      cx.fillStyle = 'rgba(255,255,255,0.18)';
+      cx.beginPath(); cx.roundRect(-8, -6, 16, 6, [5,5,0,0]); cx.fill();
+      // Belt/waist line
+      cx.fillStyle = 'rgba(0,0,0,0.18)';
+      cx.beginPath(); cx.roundRect(-11, 9, 22, 3, 1); cx.fill();
 
-      // Hands
+      // ── BACK ARM ──
+      cx.save(); cx.translate(-13, -1);
+      cx.fillStyle = colBody;
+      cx.beginPath(); cx.roundRect(-3, -2, 6, 9, 3); cx.fill();
+      cx.translate(-armSwing * 0.14, 8);
+      cx.beginPath(); cx.roundRect(-2.5, 0, 5, 7, 3); cx.fill();
       cx.fillStyle = colSkin;
-      cx.beginPath(); cx.arc(8 - swing, -11, 3.5, 0, Math.PI * 2); cx.fill();
-      cx.beginPath(); cx.arc(8 + swing, 11, 3.5, 0, Math.PI * 2); cx.fill();
+      cx.beginPath(); cx.arc(0, 8, 3.5, 0, Math.PI * 2); cx.fill();
+      cx.restore();
 
-      // Head
+      // ── FRONT ARM ──
+      cx.save(); cx.translate(13, -1);
+      cx.fillStyle = colBody;
+      cx.beginPath(); cx.roundRect(-3, -2, 6, 9, 3); cx.fill();
+      cx.translate(armSwing * 0.14, 8);
+      cx.beginPath(); cx.roundRect(-2.5, 0, 5, 7, 3); cx.fill();
       cx.fillStyle = colSkin;
-      cx.beginPath(); cx.arc(0, 0, 9, 0, Math.PI * 2); cx.fill();
+      cx.beginPath(); cx.arc(0, 8, 3.5, 0, Math.PI * 2); cx.fill();
+      cx.restore();
 
-      // Hair/Helmet
+      // ── HEAD (bigger chibi head) ──
+      // ── HEAD (proportional, not too big) ──
+      cx.fillStyle = colSkin;
+      // Neck
+      cx.beginPath(); cx.roundRect(-3, -7, 6, 4, 2); cx.fill();
+      // Head circle - r=10, center y=-16
+      cx.beginPath(); cx.arc(0, -16, 10, 0, Math.PI * 2); cx.fill();
+
+      // ── HAT ──
       if (isPlayer) {
-        cx.fillStyle = '#ffb300';
-        cx.beginPath(); cx.arc(0, 0, 9.5, -Math.PI / 2, Math.PI / 2); cx.fill();
-        cx.fillRect(-3, -11, 3, 22);
+        // Hard hat brim
+        cx.fillStyle = '#bf360c';
+        cx.beginPath(); cx.roundRect(-13, -22, 26, 4, 2); cx.fill();
+        // Hard hat dome
+        cx.fillStyle = '#e64a19';
+        cx.beginPath(); cx.arc(0, -22, 10, Math.PI, 0); cx.fill();
+        // Stripe
+        cx.fillStyle = '#ff6d00';
+        cx.beginPath(); cx.roundRect(-10, -23, 20, 3, 1); cx.fill();
+        // Shine
+        cx.fillStyle = 'rgba(255,255,255,0.35)';
+        cx.beginPath(); cx.arc(-3, -26, 3.5, Math.PI, 0); cx.fill();
       } else {
-        cx.fillStyle = '#4e342e';
-        cx.beginPath(); cx.arc(0, 0, 8.5, -Math.PI / 2, Math.PI / 2); cx.fill();
+        // NPC - flat cap, warna tetap (ditentukan saat spawn)
+        const npcCapCol = capCol || '#e57373';
+        cx.fillStyle = npcCapCol;
+        // Brim tipis
+        cx.beginPath(); cx.roundRect(-12, -24, 24, 4, 2); cx.fill();
+        // Dome kecil di atas brim
+        cx.beginPath(); cx.arc(0, -24, 9, Math.PI, 0); cx.fill();
+        // Stripe
+        cx.fillStyle = 'rgba(255,255,255,0.3)';
+        cx.beginPath(); cx.roundRect(-9, -25, 18, 2.5, 1); cx.fill();
       }
 
-      // Eyes
-      cx.fillStyle = '#fff';
-      cx.beginPath(); cx.arc(5, -4, 2.5, 0, Math.PI * 2); cx.fill();
-      cx.beginPath(); cx.arc(5, 4, 2.5, 0, Math.PI * 2); cx.fill();
-      cx.fillStyle = '#000';
-      cx.beginPath(); cx.arc(6, -4, 1.2, 0, Math.PI * 2); cx.fill();
-      cx.beginPath(); cx.arc(6, 4, 1.2, 0, Math.PI * 2); cx.fill();
-
+      // ── FACE (disesuaikan head r=10, center y=-16) ──
       if (scared) {
-        cx.fillStyle = '#ff9800'; cx.font = 'bold 16px Segoe UI'; cx.textAlign = 'center';
-        cx.save(); cx.rotate(-angle); cx.fillText('!', 0, -22); cx.restore();
-        cx.fillStyle = '#000'; cx.beginPath(); cx.arc(6, 0, 2, 0, Math.PI * 2); cx.fill();
+        // Mata lebar panik
+        cx.fillStyle = '#fff';
+        cx.beginPath(); cx.ellipse(-4, -17, 3, 4, 0, 0, Math.PI * 2); cx.fill();
+        cx.beginPath(); cx.ellipse(4, -17, 3, 4, 0, 0, Math.PI * 2); cx.fill();
+        // Pupil kecil lihat ke atas
+        cx.fillStyle = '#111';
+        cx.beginPath(); cx.arc(-4, -20, 1.4, 0, Math.PI * 2); cx.fill();
+        cx.beginPath(); cx.arc(4, -20, 1.4, 0, Math.PI * 2); cx.fill();
+        cx.fillStyle = '#fff';
+        cx.beginPath(); cx.arc(-3.3, -21, 0.6, 0, Math.PI * 2); cx.fill();
+        cx.beginPath(); cx.arc(4.7, -21, 0.6, 0, Math.PI * 2); cx.fill();
+        // Worried V-brows
+        cx.strokeStyle = '#4e342e'; cx.lineWidth = 2; cx.lineCap = 'round';
+        cx.beginPath(); cx.moveTo(-7, -22); cx.lineTo(-2.5, -20.5); cx.stroke();
+        cx.beginPath(); cx.moveTo(7, -22); cx.lineTo(2.5, -20.5); cx.stroke();
+        // O mouth
+        cx.fillStyle = '#333';
+        cx.beginPath(); cx.ellipse(0, -12, 2.8, 3.2, 0, 0, Math.PI * 2); cx.fill();
+        cx.fillStyle = '#e91e63';
+        cx.beginPath(); cx.ellipse(0, -12, 1.8, 2.2, 0, 0, Math.PI * 2); cx.fill();
+        // Sweat + !!
+        cx.scale(1 / dir, 1);
+        cx.fillStyle = 'rgba(100,180,255,0.9)';
+        cx.beginPath(); cx.arc(14, -18, 2, 0, Math.PI * 2); cx.fill();
+        cx.beginPath(); cx.moveTo(13, -18); cx.lineTo(14, -21); cx.lineTo(15, -18); cx.fill();
+        cx.fillStyle = '#ff6f00';
+        cx.font = 'bold 12px Segoe UI'; cx.textAlign = 'center';
+        cx.fillText('!!', 0, -30);
       } else {
-        cx.strokeStyle = '#000'; cx.lineWidth = 1;
-        cx.beginPath(); cx.arc(6, 0, 3, -Math.PI / 2 + 0.2, Math.PI / 2 - 0.2); cx.stroke();
+        // ── CUTE NORMAL FACE (mata r=2.5, disesuaikan) ──
+        // Left eye
+        cx.fillStyle = '#fff';
+        cx.beginPath(); cx.arc(-4, -17, 2.6, 0, Math.PI * 2); cx.fill();
+        cx.fillStyle = '#1a237e';
+        cx.beginPath(); cx.arc(-4, -17, 1.6, 0, Math.PI * 2); cx.fill();
+        cx.fillStyle = '#fff';
+        cx.beginPath(); cx.arc(-3.3, -17.8, 0.7, 0, Math.PI * 2); cx.fill();
+        // Right eye
+        cx.fillStyle = '#fff';
+        cx.beginPath(); cx.arc(4, -17, 2.6, 0, Math.PI * 2); cx.fill();
+        cx.fillStyle = '#1a237e';
+        cx.beginPath(); cx.arc(4, -17, 1.6, 0, Math.PI * 2); cx.fill();
+        cx.fillStyle = '#fff';
+        cx.beginPath(); cx.arc(4.7, -17.8, 0.7, 0, Math.PI * 2); cx.fill();
+        // Brows
+        cx.strokeStyle = '#5d4037'; cx.lineWidth = 1.4; cx.lineCap = 'round';
+        cx.beginPath(); cx.moveTo(-6.5, -20.5); cx.quadraticCurveTo(-4, -22.5, -1.5, -20.5); cx.stroke();
+        cx.beginPath(); cx.moveTo(1.5, -20.5); cx.quadraticCurveTo(4, -22.5, 6.5, -20.5); cx.stroke();
+        // Smile
+        cx.strokeStyle = '#5d4037'; cx.lineWidth = 1.4;
+        cx.beginPath(); cx.arc(0, -13, 2.8, 0.2, Math.PI - 0.2); cx.stroke();
+        // Blush
+        cx.fillStyle = 'rgba(255,120,100,0.25)';
+        cx.beginPath(); cx.ellipse(-6.5, -13, 2.8, 1.6, 0, 0, Math.PI * 2); cx.fill();
+        cx.beginPath(); cx.ellipse(6.5, -13, 2.8, 1.6, 0, 0, Math.PI * 2); cx.fill();
+      }
+
+      // Super mode ring
+      if (superMode) {
+        cx.shadowBlur = 0;
+        cx.strokeStyle = 'rgba(0,255,200,0.7)'; cx.lineWidth = 2.5;
+        cx.beginPath(); cx.arc(0, -8, 18, 0, Math.PI * 2); cx.stroke();
       }
 
       cx.restore();
     }
 
+    function drawHeartups() {
+      heartups.forEach(hu => {
+        const bob = Math.sin(Date.now() * .003 + hu.bob) * 5;
+        cx.save(); cx.translate(hu.x, hu.y + bob);
+        cx.shadowBlur = 18; cx.shadowColor = '#ff4081';
+        cx.fillStyle = '#ff4081';
+        drawHeart(cx, 0, 0, 13);
+        cx.shadowBlur = 0;
+        cx.fillStyle = 'rgba(255,255,255,0.5)';
+        cx.beginPath(); cx.ellipse(-3, -6, 3, 2, -0.5, 0, Math.PI * 2); cx.fill();
+        cx.restore();
+      });
+    }
+
+    function drawHeart(ctx, x, y, s) {
+      ctx.save(); ctx.translate(x, y);
+      ctx.beginPath();
+      ctx.moveTo(0, s * 0.3);
+      ctx.bezierCurveTo(s * 0.9, -s * 0.3, s * 1.1, -s * 0.9, 0, -s * 0.5);
+      ctx.bezierCurveTo(-s * 1.1, -s * 0.9, -s * 0.9, -s * 0.3, 0, s * 0.3);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawGunups() {
+      const now = Date.now() / 1000;
+      gunups.forEach(gu => {
+        const bob = Math.sin(now * 2 + gu.bob) * 5;
+        const scl = 1 + Math.sin(now * 3 + gu.bob) * 0.08;
+        cx.save(); cx.translate(gu.x, gu.y + bob);
+        // Glow cyan
+        cx.shadowBlur = 22; cx.shadowColor = '#00e5ff';
+        cx.scale(scl, scl);
+        // Spray can body
+        cx.fillStyle = '#00bcd4';
+        cx.beginPath(); cx.roundRect(-8, -14, 16, 22, 4); cx.fill();
+        // Cap
+        cx.fillStyle = '#e0f7fa';
+        cx.beginPath(); cx.roundRect(-5, -18, 10, 6, 3); cx.fill();
+        // Nozzle
+        cx.fillStyle = '#fff';
+        cx.beginPath(); cx.roundRect(4, -16, 7, 3, 1); cx.fill();
+        // Label
+        cx.fillStyle = '#fff';
+        cx.beginPath(); cx.roundRect(-5, -8, 10, 8, 2); cx.fill();
+        cx.fillStyle = '#006064';
+        cx.font = 'bold 6px Segoe UI'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+        cx.fillText('💨', 0, -4);
+        cx.shadowBlur = 0;
+        cx.restore();
+
+        // Label teks
+        cx.fillStyle = '#00e5ff';
+        cx.font = 'bold 10px Segoe UI'; cx.textAlign = 'center'; cx.textBaseline = 'top';
+        cx.fillText('SEMPROTAN', gu.x, gu.y + bob + 14);
+      });
+    }
+
+    function drawBullets() {
+      const now = Date.now() / 1000;
+      bullets.forEach(b => {
+        cx.save(); cx.translate(b.x, b.y);
+        const ang = Math.atan2(b.vy, b.vx);
+        cx.rotate(ang);
+        // Trail
+        cx.shadowBlur = 16; cx.shadowColor = '#00e5ff';
+        const trail = cx.createLinearGradient(-18, 0, 0, 0);
+        trail.addColorStop(0, 'rgba(0,229,255,0)');
+        trail.addColorStop(1, 'rgba(0,229,255,0.7)');
+        cx.fillStyle = trail;
+        cx.beginPath(); cx.ellipse(-9, 0, 9, 3, 0, 0, Math.PI * 2); cx.fill();
+        // Bullet body
+        cx.fillStyle = '#e0f7fa';
+        cx.beginPath(); cx.ellipse(0, 0, 5, 3.5, 0, 0, Math.PI * 2); cx.fill();
+        cx.fillStyle = '#00e5ff';
+        cx.beginPath(); cx.ellipse(2, 0, 3, 2.5, 0, 0, Math.PI * 2); cx.fill();
+        cx.shadowBlur = 0;
+        cx.restore();
+      });
+
+      // Crosshair cursor saat punya senjata
+      if (P && P.hasGun && st === S.PLAY) {
+        const mx = mousePos.x, my = mousePos.y;
+        cx.save();
+        cx.strokeStyle = 'rgba(0,229,255,0.85)'; cx.lineWidth = 1.5;
+        const cs = 10;
+        cx.beginPath();
+        cx.moveTo(mx - cs, my); cx.lineTo(mx + cs, my);
+        cx.moveTo(mx, my - cs); cx.lineTo(mx, my + cs);
+        cx.stroke();
+        cx.beginPath(); cx.arc(mx, my, 5, 0, Math.PI * 2);
+        cx.stroke();
+        cx.restore();
+      }
+    }
+
     function drawNPCs() {
       npcs.forEach(n => {
-        n.bobT = (n.bobT || rand(0, 10)) + 0.1;
-        drawCharacter(n.x, n.y, n.vx, n.vy, n.bobT, n.col, '#ffccaa', false, n.scared, n.ang, P.superT > 0);
+        const nMoving = Math.abs(n.vx) > 5 || Math.abs(n.vy) > 5;
+        n.bobT = (n.bobT || rand(0, 10)) + (nMoving ? 0.16 : 0.04);
+        drawCharacter(n.x, n.y, n.vx, n.vy, n.bobT, n.col, '#ffccaa', false, n.scared, n.facingDir || 1, P.superT > 0, n.capCol);
       });
     }
 
     function drawPollClouds() {
       pollClouds.forEach(pc => {
-        const p = pc.pulse;
-        cx.save(); cx.translate(pc.x, pc.y);
-        const cg = cx.createRadialGradient(0, 0, 1, 0, 0, pc.r);
-        cg.addColorStop(0, 'rgba(190,80,255,0.95)'); cg.addColorStop(1, 'rgba(80,0,160,0.8)');
-        cx.fillStyle = cg; cx.beginPath(); cx.arc(0, 0, pc.r, 0, 6.28); cx.fill();
+        const t = Date.now() / 1000;
+        // Animasi: float naik-turun, scale pulse, goyang kiri-kanan
+        const floatY = Math.sin(t * 1.8 + pc.pulse) * 5;       // naik turun
+        const scl    = 1 + Math.sin(t * 2.5 + pc.pulse) * 0.08; // scale pulse
+        const wobble = Math.sin(t * 3.0 + pc.pulse) * 0.12;     // goyang
+        const flipX  = pc.vx > 0 ? -1 : 1;                       // flip saat jalan kanan (gambar default hadap kiri)
 
-        const dir = pc.vx > 0 ? 1 : -1;
-        cx.fillStyle = '#ffea00';
-        cx.beginPath(); cx.moveTo(-10 + dir * 3, -6); cx.lineTo(-2 + dir * 3, -2); cx.lineTo(-12 + dir * 3, -1); cx.fill();
-        cx.beginPath(); cx.moveTo(10 + dir * 3, -6); cx.lineTo(2 + dir * 3, -2); cx.lineTo(12 + dir * 3, -1); cx.fill();
+        cx.save();
+        cx.translate(pc.x, pc.y + floatY);
+        cx.rotate(wobble);
+        cx.scale(flipX * scl, scl);
 
-        cx.strokeStyle = '#ffea00'; cx.lineWidth = 2; cx.lineJoin = 'round';
-        cx.beginPath();
-        cx.moveTo(-8 + dir * 2, 8); cx.lineTo(-4 + dir * 2, 4); cx.lineTo(0 + dir * 2, 9); cx.lineTo(4 + dir * 2, 4); cx.lineTo(8 + dir * 2, 8);
-        cx.stroke();
+        // Shadow di bawah monster
+        cx.shadowBlur = 20 + Math.sin(t * 2 + pc.pulse) * 8;
+        cx.shadowColor = pc.hitT > 0 ? 'rgba(255,50,50,0.9)' : 'rgba(160,0,255,0.7)';
 
+        // Gambar aset monster jika sudah load
+        const sz = pc.r * 3.8; // ukuran sprite
+        if (monsterImg.complete && monsterImg.naturalWidth > 0) {
+          cx.drawImage(monsterImg, -sz / 2, -sz / 2, sz, sz);
+        } else {
+          // Fallback canvas shape jika gambar belum load
+          const cg = cx.createRadialGradient(0, 0, 1, 0, 0, pc.r);
+          cg.addColorStop(0, 'rgba(190,80,255,0.95)');
+          cg.addColorStop(1, 'rgba(80,0,160,0.8)');
+          cx.fillStyle = cg;
+          cx.beginPath(); cx.arc(0, 0, pc.r, 0, 6.28); cx.fill();
+        }
+
+        // Flash merah saat kena hit
+        if (pc.hitT > 0) {
+          cx.globalAlpha = pc.hitT * 0.5;
+          cx.fillStyle = '#ff3333';
+          cx.beginPath(); cx.arc(0, 0, pc.r * 1.8, 0, 6.28); cx.fill();
+          cx.globalAlpha = 1;
+        }
+
+        cx.shadowBlur = 0;
         cx.restore();
       });
     }
@@ -701,18 +1138,108 @@
     }
 
     function drawLamps() {
+      const now = Date.now() / 1000;
       lamps.forEach(l => {
+        const flicker = l.fixed ? (0.85 + Math.sin(now * 8.3 + l.flickerT) * 0.15) : 0;
+
+        // Cone cahaya sederhana (tanpa gradient per frame = lebih cepat)
         if (l.fixed) {
-          const g = cx.createRadialGradient(l.x, l.y, 0, l.x, l.y, 85);
-          g.addColorStop(0, 'rgba(255,215,64,0.22)'); g.addColorStop(1, 'rgba(255,215,64,0)');
-          cx.fillStyle = g; cx.beginPath(); cx.arc(l.x, l.y, 85, 0, 6.28); cx.fill();
+          const coneAlpha = 0.10 * flicker;
+          cx.fillStyle = `rgba(255,220,80,${coneAlpha})`;
+          cx.beginPath();
+          cx.moveTo(l.x + 10, l.y);
+          cx.lineTo(l.x + 10 - 55, l.y + 80);
+          cx.lineTo(l.x + 10 + 55, l.y + 80);
+          cx.closePath(); cx.fill();
         }
-        cx.strokeStyle = l.fixed ? '#90a4ae' : '#546e7a'; cx.lineWidth = 3;
-        cx.beginPath(); cx.moveTo(l.x, l.y + 35); cx.lineTo(l.x, l.y); cx.stroke();
-        cx.shadowBlur = l.fixed ? 18 : 0; cx.shadowColor = '#ffd740';
-        cx.fillStyle = l.fixed ? '#ffd740' : '#546e7a';
-        cx.beginPath(); cx.arc(l.x, l.y, 14, 0, 6.28); cx.fill();
-        cx.shadowBlur = 0;
+
+        // Tiang (pole)
+        cx.strokeStyle = l.fixed ? '#78909c' : '#546e7a';
+        cx.lineWidth = 4; cx.lineCap = 'round';
+        cx.beginPath(); cx.moveTo(l.x, l.y + 38); cx.lineTo(l.x, l.y + 6); cx.stroke();
+        // Lengan
+        cx.lineWidth = 3;
+        cx.beginPath(); cx.moveTo(l.x, l.y + 6); cx.lineTo(l.x + 10, l.y + 6); cx.stroke();
+        // Housing
+        cx.fillStyle = l.fixed ? '#455a64' : '#37474f';
+        cx.beginPath(); cx.roundRect(l.x + 2, l.y - 4, 16, 10, 3); cx.fill();
+        // Bola lampu (tanpa shadowBlur)
+        cx.fillStyle = l.fixed ? `rgba(255,${200 + flicker * 55 | 0},40,${flicker})` : '#263238';
+        cx.beginPath(); cx.arc(l.x + 10, l.y + 1, 5, 0, 6.28); cx.fill();
+        // Inner white dot
+        if (l.fixed && flicker > 0.88) {
+          cx.fillStyle = 'rgba(255,255,220,0.85)';
+          cx.beginPath(); cx.arc(l.x + 10, l.y + 1, 2, 0, 6.28); cx.fill();
+        }
+
+        // Durability bar
+        if (l.fixed) {
+          const pct = Math.max(0, Math.min(1, l.life / 100));
+          const bx = l.x + 2, by = l.y - 12, bw = 22, bh = 4;
+          cx.fillStyle = 'rgba(0,0,0,0.55)';
+          cx.beginPath(); cx.roundRect(bx, by, bw, bh, 2); cx.fill();
+          const barCol = pct > 0.5 ? '#69f0ae' : pct > 0.25 ? '#ffd740' : '#ff5252';
+          cx.fillStyle = barCol;
+          if (pct > 0) { cx.beginPath(); cx.roundRect(bx, by, bw * pct, bh, 2); cx.fill(); }
+        }
+      });
+    }
+
+    function drawBins() {
+      if (!bins) return;
+      const now = Date.now() / 1000;
+      bins.forEach(b => {
+        if (b.pulse > 0) b.pulse -= 0.03;
+        const scl   = 1 + b.pulse * 0.2;
+        const col   = BIN_COLOR[b.type];
+        const dark  = BIN_DARK[b.type];
+        const label = BIN_LABEL[b.type];
+        const nearPlayer = P && dist(P.x, P.y, b.x, b.y) < 70;
+
+        cx.save(); cx.translate(b.x, b.y); cx.scale(scl, scl);
+        // Bayangan bawah
+        cx.fillStyle = 'rgba(0,0,0,0.2)';
+        cx.beginPath(); cx.ellipse(0, 22, 16, 4, 0, 0, Math.PI * 2); cx.fill();
+        // Badan
+        cx.fillStyle = dark;
+        cx.beginPath(); cx.roundRect(-16, -18, 32, 38, [4,4,6,6]); cx.fill();
+        cx.fillStyle = col;
+        cx.beginPath(); cx.roundRect(-14, -16, 28, 32, [3,3,5,5]); cx.fill();
+        // Highlight
+        cx.fillStyle = 'rgba(255,255,255,0.18)';
+        cx.beginPath(); cx.roundRect(-14, -16, 28, 8, [3,3,0,0]); cx.fill();
+        // Tutup
+        cx.fillStyle = dark;
+        cx.beginPath(); cx.roundRect(-18, -22, 36, 8, [5,5,2,2]); cx.fill();
+        // Lubang
+        cx.fillStyle = 'rgba(0,0,0,0.28)';
+        cx.beginPath(); cx.roundRect(-8, -8, 16, 8, 3); cx.fill();
+        // Simbol
+        const icons = { organik: '🌿', plastik: '♻️', logam: '⚙️' };
+        cx.font = '14px Segoe UI'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+        cx.fillText(icons[b.type], 0, 6);
+        // Ring indikator proximity (tanpa shadow)
+        if (nearPlayer) {
+          cx.strokeStyle = col; cx.lineWidth = 2;
+          cx.beginPath(); cx.roundRect(-18, -24, 36, 48, 6); cx.stroke();
+        }
+        cx.restore();
+
+        // Label
+        cx.fillStyle = nearPlayer ? col : 'rgba(255,255,255,0.65)';
+        cx.font = nearPlayer ? 'bold 11px Segoe UI' : '10px Segoe UI';
+        cx.textAlign = 'center'; cx.textBaseline = 'top';
+        cx.fillText(label, b.x, b.y + 25);
+
+        // [F] prompt berkedip saat dekat & ada sampah
+        if (nearPlayer && P.bag.length > 0) {
+          const a = 0.6 + Math.sin(now * 5) * 0.4;
+          cx.globalAlpha = a;
+          cx.fillStyle = col; cx.font = 'bold 12px Segoe UI';
+          cx.textAlign = 'center'; cx.textBaseline = 'bottom';
+          cx.fillText('[F] Buang', b.x, b.y - 25);
+          cx.globalAlpha = 1;
+        }
       });
     }
 
@@ -720,10 +1247,8 @@
       powerups.forEach(pu => {
         const bob = Math.sin(Date.now() * .003 + pu.bob) * 5;
         cx.save(); cx.translate(pu.x, pu.y + bob);
-        cx.shadowBlur = 20; cx.shadowColor = '#00ffcc';
         cx.fillStyle = '#00ffcc';
         cx.beginPath(); cx.arc(0, 0, pu.r, 0, Math.PI * 2); cx.fill();
-        cx.shadowBlur = 0;
         cx.fillStyle = '#fff';
         cx.font = '16px Segoe UI'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
         cx.fillText('T', 0, 0);
@@ -732,23 +1257,32 @@
     }
 
     function drawTrash() {
+      const now = Date.now() / 1000;
       trash.forEach(t => {
-        const bob = Math.sin(Date.now() * .001 * 1.8 + t.bob) * 5;
-        cx.shadowBlur = 12; cx.shadowColor = 'rgba(105,214,114,0.5)';
-        cx.fillStyle = 'rgba(105,214,114,0.15)';
-        cx.beginPath(); cx.arc(t.x, t.y + bob, t.r + 5, 0, 6.28); cx.fill();
-        cx.shadowBlur = 0;
-        cx.save(); cx.translate(t.x, t.y + bob);
-        if (t.type === 0) {
-          cx.fillStyle = '#e0e0e0';
-          cx.beginPath(); cx.moveTo(-5, -5); cx.lineTo(3, -7); cx.lineTo(6, 2); cx.lineTo(0, 6); cx.lineTo(-6, 3); cx.fill();
-        } else if (t.type === 1) {
-          cx.fillStyle = '#4caf50';
-          rrect(-3, -6, 6, 12, 2);
+        const bob = Math.sin(now * 1.8 + t.bob) * 4;  // float naik-turun
+        const scl = 1 + Math.sin(now * 2.2 + t.bob) * 0.05; // scale pulse
+
+        const img = trashImgs[t.type % 3];
+        const imgOk = img.complete && img.naturalWidth > 0;
+
+        cx.save();
+        cx.translate(t.x, t.y + bob);
+        cx.scale(scl, scl);
+
+        if (imgOk) {
+          const sz = t.r * 2.4;
+          cx.drawImage(img, -sz / 2, -sz / 2, sz, sz);
         } else {
-          cx.fillStyle = '#f44336';
-          rrect(-4, -5, 8, 10, 1);
+          if (t.type === 0) {
+            cx.fillStyle = '#e0e0e0';
+            cx.beginPath(); cx.moveTo(-5,-5); cx.lineTo(3,-7); cx.lineTo(6,2); cx.lineTo(0,6); cx.lineTo(-6,3); cx.fill();
+          } else if (t.type === 1) {
+            cx.fillStyle = '#4caf50'; rrect(-3,-6,6,12,2);
+          } else {
+            cx.fillStyle = '#f44336'; rrect(-4,-5,8,10,1);
+          }
         }
+
         cx.restore();
       });
     }
@@ -788,8 +1322,8 @@
     function drawPlayer() {
       if (!P.blink) return;
       const isMoving = Math.abs(P.vx) > 5 || Math.abs(P.vy) > 5;
-      P.bobT = (P.bobT || 0) + (isMoving ? 0.015 * Math.hypot(P.vx, P.vy) : 0.05);
-      drawCharacter(P.x, P.y, P.vx, P.vy, P.bobT, '#00838f', '#ffccaa', true, false, P.ang, P.superT > 0);
+      P.bobT = (P.bobT || 0) + (isMoving ? 0.17 : 0.04);
+      drawCharacter(P.x, P.y, P.vx, P.vy, P.bobT, '#00838f', '#ffccaa', true, P.scared || false, P.facingDir || 1, P.superT > 0);
     }
 
     let lightCanvas, lcx;
@@ -831,10 +1365,67 @@
       cx.fillText(levelData.name, W / 2, 24);
       cx.fillStyle = '#fff'; cx.font = 'bold 26px Segoe UI';
       cx.fillText(Math.ceil(timer) + 's', W / 2, 48);
+      // Hearts
       cx.fillStyle = '#f44336';
-      for (let i = 0; i < 3; i++) {
-        if (i < lives) cx.fillRect(W - 40 - i * 30, 26, 20, 20);
-        else { cx.strokeStyle = '#f44336'; cx.strokeRect(W - 40 - i * 30, 26, 20, 20); }
+      for (let i = 0; i < Math.max(lives, 3); i++) {
+        const hx = W - 30 - i * 28;
+        const hy = 37;
+        if (i < lives) {
+          cx.fillStyle = '#f44336';
+          cx.shadowBlur = 8; cx.shadowColor = '#ff4081';
+          drawHeart(cx, hx, hy, 10);
+          cx.shadowBlur = 0;
+        } else {
+          cx.fillStyle = 'rgba(244,67,54,0.25)';
+          drawHeart(cx, hx, hy, 10);
+        }
+      }
+
+      // Ammo counter saat punya senjata
+      if (P && P.hasGun) {
+        const ax = W - 30 - Math.max(lives, 3) * 28 - 15;
+        cx.fillStyle = '#00e5ff';
+        cx.font = 'bold 13px Segoe UI'; cx.textAlign = 'right'; cx.textBaseline = 'middle';
+        cx.shadowBlur = 8; cx.shadowColor = '#00e5ff';
+        cx.fillText('💨 ' + P.ammo + 'x', ax, 37);
+        cx.shadowBlur = 0;
+      }
+
+      // ── BAG / TAS SAMPAH ──
+      if (P && P.bag) {
+        const bagX = 30, bagY = 74;
+        // Background tas
+        cx.fillStyle = 'rgba(10,20,40,0.8)';
+        cx.beginPath(); cx.roundRect(bagX, bagY, 200, 30, 8); cx.fill();
+        cx.strokeStyle = 'rgba(255,255,255,0.15)'; cx.lineWidth = 1;
+        cx.beginPath(); cx.roundRect(bagX, bagY, 200, 30, 8); cx.stroke();
+        // Label
+        cx.fillStyle = 'rgba(255,255,255,0.6)'; cx.font = '11px Segoe UI';
+        cx.textAlign = 'left'; cx.textBaseline = 'middle';
+        cx.fillText('🎒 TAS:', bagX + 8, bagY + 15);
+        // Slot-slot item
+        for (let i = 0; i < BAG_MAX; i++) {
+          const sx = bagX + 58 + i * 28;
+          const sy = bagY + 15;
+          // Slot background
+          cx.fillStyle = 'rgba(255,255,255,0.08)';
+          cx.beginPath(); cx.roundRect(sx - 11, sy - 11, 22, 22, 4); cx.fill();
+          if (i < P.bag.length) {
+            const cat = TRASH_CAT[P.bag[i]];
+            cx.fillStyle = BIN_COLOR[cat];
+            cx.shadowBlur = 8; cx.shadowColor = BIN_COLOR[cat];
+            cx.beginPath(); cx.roundRect(sx - 9, sy - 9, 18, 18, 3); cx.fill();
+            cx.shadowBlur = 0;
+            // Icon huruf
+            cx.fillStyle = '#fff'; cx.font = 'bold 9px Segoe UI';
+            cx.textAlign = 'center'; cx.textBaseline = 'middle';
+            cx.fillText(cat[0].toUpperCase(), sx, sy);
+          }
+        }
+        // Teks jumlah
+        cx.fillStyle = 'rgba(255,255,255,0.5)'; cx.font = '10px Segoe UI';
+        cx.textAlign = 'left'; cx.textBaseline = 'middle';
+        cx.fillText(P.bag.length + '/' + BAG_MAX, bagX + 168, bagY + 15);
       }
     }
 
