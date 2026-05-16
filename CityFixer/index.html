@@ -632,7 +632,11 @@
       });
       pollClouds = pollClouds.filter(pc => !pc._dead);
       npcs = npcs.filter(n => !n._dead);
-      if (pollClouds.length < 2 + level && Math.random() < levelData.cloudRate) spawnPollCloud();
+      if (pollClouds.length < 2 + level) {
+        // Jika 0 monster → respawn cepat (x20 rate), jangan sampai layar kosong
+        const rate = pollClouds.length === 0 ? Math.min(levelData.cloudRate * 20, 0.05) : levelData.cloudRate;
+        if (Math.random() < rate) spawnPollCloud();
+      }
 
       // Player panic detection - wajah panik kalau monster dekat
       P.scared = P.superT <= 0 && pollClouds.some(pc => dist(P.x, P.y, pc.x, pc.y) < 160);
