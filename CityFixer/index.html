@@ -496,7 +496,7 @@
       });
 
       parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; if (!p.conf) p.vy += 60 * dt; p.life -= dt; });
-      parts = parts.filter(p => p.life > 0);
+      compact(parts, p => p.life > 0);
 
       const fixedLamps = lamps.filter(l => l.fixed);
       const superMode = (P.superT > 0);
@@ -632,8 +632,8 @@
         }
         if (pc.hp <= 0) { sfxMonsterDie(); pc._dead = true; } // suara monster mati
       });
-      pollClouds = pollClouds.filter(pc => !pc._dead);
-      npcs = npcs.filter(n => !n._dead);
+      compact(pollClouds, pc => !pc._dead);
+      compact(npcs, n => !n._dead);
       if (pollClouds.length < 2 + level) {
         // Jika 0 monster → respawn cepat (x20 rate), jangan sampai layar kosong
         const rate = pollClouds.length === 0 ? Math.min(levelData.cloudRate * 20, 0.05) : levelData.cloudRate;
@@ -645,15 +645,25 @@
 
       if (shakeT > 0) { shakeT -= dt; shakeX = (Math.random() - .5) * shakeM * 2; shakeY = (Math.random() - .5) * shakeM * 2; } else { shakeX = 0; shakeY = 0; }
       if (comboT > 0) { comboT -= dt; } else { combo = 0; }
-      floats.forEach(f => { f.y += f.vy * dt; f.life -= dt; }); floats = floats.filter(f => f.life > 0);
+      floats.forEach(f => { f.y += f.vy * dt; f.life -= dt; }); compact(floats, f => f.life > 0);
 
       if (levelData.rain) {
-        if (!raindrops) raindrops = [];
-        for (let i = 0; i < 6; i++) {
-          raindrops.push({ x: rand(-200, W + 200), y: rand(-50, 0), l: rand(10, 25), s: rand(600, 900) });
+        if (!raindrops || raindrops.length === 0) {
+          // Init pool sekali
+          raindrops = Array.from({ length: 150 }, () => ({
+            x: rand(-200, W + 200), y: rand(0, H + 50),
+            l: rand(10, 25), s: rand(600, 900)
+          }));
         }
-        raindrops.forEach(r => { r.y += r.s * dt; r.x += r.s * 0.15 * dt; });
-        raindrops = raindrops.filter(r => r.y < H + 50);
+        // Update in-place, wrap tanpa push/filter
+        for (let i = 0; i < raindrops.length; i++) {
+          const r = raindrops[i];
+          r.y += r.s * dt; r.x += r.s * 0.15 * dt;
+          if (r.y > H + 50) {
+            r.x = rand(-200, W + 200); r.y = rand(-50, 0);
+            r.l = rand(10, 25); r.s = rand(600, 900);
+          }
+        }
       }
     }
 
@@ -952,10 +962,8 @@
       heartups.forEach(hu => {
         const bob = Math.sin(Date.now() * .003 + hu.bob) * 5;
         cx.save(); cx.translate(hu.x, hu.y + bob);
-        cx.shadowBlur = 18; cx.shadowColor = '#ff4081';
         cx.fillStyle = '#ff4081';
         drawHeart(cx, 0, 0, 13);
-        cx.shadowBlur = 0;
         cx.fillStyle = 'rgba(255,255,255,0.5)';
         cx.beginPath(); cx.ellipse(-3, -6, 3, 2, -0.5, 0, Math.PI * 2); cx.fill();
         cx.restore();
@@ -977,29 +985,19 @@
       gunups.forEach(gu => {
         const bob = Math.sin(now * 2 + gu.bob) * 5;
         const scl = 1 + Math.sin(now * 3 + gu.bob) * 0.08;
-        cx.save(); cx.translate(gu.x, gu.y + bob);
-        // Glow cyan
-        cx.shadowBlur = 22; cx.shadowColor = '#00e5ff';
-        cx.scale(scl, scl);
-        // Spray can body
+        cx.save(); cx.translate(gu.x, gu.y + bob); cx.scale(scl, scl);
         cx.fillStyle = '#00bcd4';
         cx.beginPath(); cx.roundRect(-8, -14, 16, 22, 4); cx.fill();
-        // Cap
         cx.fillStyle = '#e0f7fa';
         cx.beginPath(); cx.roundRect(-5, -18, 10, 6, 3); cx.fill();
-        // Nozzle
         cx.fillStyle = '#fff';
         cx.beginPath(); cx.roundRect(4, -16, 7, 3, 1); cx.fill();
-        // Label
         cx.fillStyle = '#fff';
         cx.beginPath(); cx.roundRect(-5, -8, 10, 8, 2); cx.fill();
         cx.fillStyle = '#006064';
         cx.font = 'bold 6px Segoe UI'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
         cx.fillText('💨', 0, -4);
-        cx.shadowBlur = 0;
         cx.restore();
-
-        // Label teks
         cx.fillStyle = '#00e5ff';
         cx.font = 'bold 10px Segoe UI'; cx.textAlign = 'center'; cx.textBaseline = 'top';
         cx.fillText('SEMPROTAN', gu.x, gu.y + bob + 14);
@@ -1007,28 +1005,21 @@
     }
 
     function drawBullets() {
-      const now = Date.now() / 1000;
       bullets.forEach(b => {
         cx.save(); cx.translate(b.x, b.y);
         const ang = Math.atan2(b.vy, b.vx);
         cx.rotate(ang);
-        // Trail
-        cx.shadowBlur = 16; cx.shadowColor = '#00e5ff';
-        const trail = cx.createLinearGradient(-18, 0, 0, 0);
-        trail.addColorStop(0, 'rgba(0,229,255,0)');
-        trail.addColorStop(1, 'rgba(0,229,255,0.7)');
-        cx.fillStyle = trail;
+        // Trail (no shadowBlur - use simple gradient)
+        cx.fillStyle = 'rgba(0,229,255,0.5)';
         cx.beginPath(); cx.ellipse(-9, 0, 9, 3, 0, 0, Math.PI * 2); cx.fill();
         // Bullet body
         cx.fillStyle = '#e0f7fa';
         cx.beginPath(); cx.ellipse(0, 0, 5, 3.5, 0, 0, Math.PI * 2); cx.fill();
         cx.fillStyle = '#00e5ff';
         cx.beginPath(); cx.ellipse(2, 0, 3, 2.5, 0, 0, Math.PI * 2); cx.fill();
-        cx.shadowBlur = 0;
         cx.restore();
       });
-
-      // Crosshair cursor saat punya senjata
+      // Crosshair saat punya senjata
       if (P && P.hasGun && st === S.PLAY) {
         const mx = mousePos.x, my = mousePos.y;
         cx.save();
@@ -1038,8 +1029,7 @@
         cx.moveTo(mx - cs, my); cx.lineTo(mx + cs, my);
         cx.moveTo(mx, my - cs); cx.lineTo(mx, my + cs);
         cx.stroke();
-        cx.beginPath(); cx.arc(mx, my, 5, 0, Math.PI * 2);
-        cx.stroke();
+        cx.beginPath(); cx.arc(mx, my, 5, 0, Math.PI * 2); cx.stroke();
         cx.restore();
       }
     }
@@ -1055,43 +1045,27 @@
     function drawPollClouds() {
       pollClouds.forEach(pc => {
         const t = Date.now() / 1000;
-        // Animasi: float naik-turun, scale pulse, goyang kiri-kanan
-        const floatY = Math.sin(t * 1.8 + pc.pulse) * 5;       // naik turun
-        const scl    = 1 + Math.sin(t * 2.5 + pc.pulse) * 0.08; // scale pulse
-        const wobble = Math.sin(t * 3.0 + pc.pulse) * 0.12;     // goyang
-        const flipX  = pc.vx > 0 ? -1 : 1;                       // flip saat jalan kanan (gambar default hadap kiri)
-
+        const floatY = Math.sin(t * 1.8 + pc.pulse) * 5;
+        const scl    = 1 + Math.sin(t * 2.5 + pc.pulse) * 0.08;
+        const wobble = Math.sin(t * 3.0 + pc.pulse) * 0.12;
+        const flipX  = pc.vx > 0 ? -1 : 1;
         cx.save();
         cx.translate(pc.x, pc.y + floatY);
         cx.rotate(wobble);
         cx.scale(flipX * scl, scl);
-
-        // Shadow di bawah monster
-        cx.shadowBlur = 20 + Math.sin(t * 2 + pc.pulse) * 8;
-        cx.shadowColor = pc.hitT > 0 ? 'rgba(255,50,50,0.9)' : 'rgba(160,0,255,0.7)';
-
-        // Gambar aset monster jika sudah load
-        const sz = pc.r * 3.8; // ukuran sprite
+        const sz = pc.r * 3.8;
         if (monsterImg.complete && monsterImg.naturalWidth > 0) {
           cx.drawImage(monsterImg, -sz / 2, -sz / 2, sz, sz);
         } else {
-          // Fallback canvas shape jika gambar belum load
-          const cg = cx.createRadialGradient(0, 0, 1, 0, 0, pc.r);
-          cg.addColorStop(0, 'rgba(190,80,255,0.95)');
-          cg.addColorStop(1, 'rgba(80,0,160,0.8)');
-          cx.fillStyle = cg;
+          cx.fillStyle = pc.hitT > 0 ? 'rgba(255,80,80,0.9)' : 'rgba(150,60,220,0.9)';
           cx.beginPath(); cx.arc(0, 0, pc.r, 0, 6.28); cx.fill();
         }
-
-        // Flash merah saat kena hit
         if (pc.hitT > 0) {
           cx.globalAlpha = pc.hitT * 0.5;
           cx.fillStyle = '#ff3333';
           cx.beginPath(); cx.arc(0, 0, pc.r * 1.8, 0, 6.28); cx.fill();
           cx.globalAlpha = 1;
         }
-
-        cx.shadowBlur = 0;
         cx.restore();
       });
     }
@@ -1492,6 +1466,12 @@
     function dist(x1, y1, x2, y2) { return Math.hypot(x2 - x1, y2 - y1); }
     function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
     function rand(a, b) { return a + Math.random() * (b - a); }
+    // In-place array filter - tidak buat array baru → tidak bikin GC spike
+    function compact(arr, keep) {
+      let j = 0;
+      for (let i = 0; i < arr.length; i++) { if (keep(arr[i])) arr[j++] = arr[i]; }
+      arr.length = j;
+    }
     function rectCircle(rx, ry, rw, rh, cx2, cy2, cr) {
       const nx = clamp(cx2, rx, rx + rw), ny = clamp(cy2, ry, ry + rh);
       return dist(cx2, cy2, nx, ny) < cr;
