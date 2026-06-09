@@ -201,11 +201,11 @@
     function goToMenu() { if (bgmInt) clearInterval(bgmInt); bgmInt = null; st = S.MENU; }
 
     const LEVELS = [
-      { name: 'LEVEL 1: SIANG CERAH', time: 60, skyColor: '#4CA1AF', buildingBase: [100, 140, 180], overlay: 'rgba(0,0,0,0)', rain: false, cloudRate: 0.001 },
-      { name: 'LEVEL 2: SORE BERPOLUSI', time: 65, skyColor: '#ff7b54', buildingBase: [90, 60, 50], overlay: 'rgba(40,15,0,0.25)', rain: false, cloudRate: 0.003 },
-      { name: 'LEVEL 3: MALAM KELAM', time: 70, skyColor: '#07091a', buildingBase: [20, 25, 35], overlay: 'rgba(8,12,25,0.6)', rain: false, cloudRate: 0.005 },
-      { name: 'LEVEL 4: HUJAN BADAI', time: 75, skyColor: '#1a2530', buildingBase: [25, 30, 35], overlay: 'rgba(5,10,20,0.7)', rain: true, cloudRate: 0.006 },
-      { name: 'LEVEL 5: PUSAT POLUSI', time: 80, skyColor: '#300010', buildingBase: [35, 10, 10], overlay: 'rgba(40,0,10,0.65)', rain: true, cloudRate: 0.008 }
+      { name: 'LEVEL 1: SIANG CERAH', time: 60, skyColor: '#4CA1AF', buildingBase: [100, 140, 180], overlay: 'rgba(0,0,0,0)', rain: false, cloudRate: 0.001, lampsActive: false },
+      { name: 'LEVEL 2: SORE BERPOLUSI', time: 65, skyColor: '#ff7b54', buildingBase: [90, 60, 50], overlay: 'rgba(40,15,0,0.25)', rain: false, cloudRate: 0.003, lampsActive: false },
+      { name: 'LEVEL 3: MALAM KELAM', time: 70, skyColor: '#07091a', buildingBase: [20, 25, 35], overlay: 'rgba(8,12,25,0.6)', rain: false, cloudRate: 0.005, lampsActive: true },
+      { name: 'LEVEL 4: HUJAN BADAI', time: 75, skyColor: '#1a2530', buildingBase: [25, 30, 35], overlay: 'rgba(5,10,20,0.7)', rain: true, cloudRate: 0.006, lampsActive: true },
+      { name: 'LEVEL 5: PUSAT POLUSI', time: 80, skyColor: '#300010', buildingBase: [35, 10, 10], overlay: 'rgba(40,0,10,0.65)', rain: true, cloudRate: 0.008, lampsActive: true }
     ];
 
     let currentLevelIdx = 0;
