@@ -494,11 +494,11 @@
         if (window.boss && window.boss.hp > 0 && dist(b.x, b.y, window.boss.x, window.boss.y) < window.boss.r + b.r) {
             window.boss.hp--; window.boss.hitT = 0.2;
             burst(b.x, b.y, '#00e5ff', 8);
-            addScore(100); addFloat(b.x, b.y - 10, '+100', '#00e5ff');
+            addScore(10); addFloat(b.x, b.y - 10, '+10', '#00e5ff');
             if (window.boss.hp <= 0) {
                 sfxMonsterDie();
                 burst(window.boss.x, window.boss.y, '#00e5ff', 100);
-                addScore(5000); setFlash('Raja Polusi Kalah! +5000', '#00ffcc');
+                addScore(1000); setFlash('Raja Polusi Kalah! +1000', '#00ffcc');
                 endGame(true); // Win when boss dies
             }
             return false;
@@ -508,7 +508,7 @@
           if (!hitPcs.has(pc) && dist(b.x, b.y, pc.x, pc.y) < pc.r + b.r) {
             pc.hp--; pc.hitT = 0.35;
             burst(b.x, b.y, '#00e5ff', 6);
-            addScore(25); addFloat(b.x, b.y - 10, '+25', '#00e5ff');
+            addScore(5); addFloat(b.x, b.y - 10, '+5', '#00e5ff');
             if (pc.hp <= 0) { sfxMonsterDie(); pc._dead = true; hitPcs.add(pc); }
             hit = true;
           }
@@ -732,13 +732,13 @@
       lamps.forEach(l => {
         if (!l.fixed && dist(P.x, P.y, l.x, l.y) < 75) {
           l.fixed = true; l.life = 100; sfxLamp();
-          addScore(30);
-          addFloat(l.x, l.y, '+30', '#ffd740');
+          addScore(10);
+          addFloat(l.x, l.y, '+10', '#ffd740');
           burst(l.x, l.y, '#ffd740', 12);
         } else if (l.fixed && dist(P.x, P.y, l.x, l.y) < 75 && l.life < 50) {
           l.life = 100; sfxCollect();
-          addScore(10);
-          addFloat(l.x, l.y, '+10', '#ffd740');
+          addScore(5);
+          addFloat(l.x, l.y, '+5', '#ffd740');
         }
       });
     }
@@ -769,7 +769,7 @@
       });
       P.bag = newBag;
       if (correct > 0) {
-        const pts = correct * 40;
+        const pts = correct * 10;
         addScore(pts);
         combo += correct; comboT = 2.5;
         sfxWin();
