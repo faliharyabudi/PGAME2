@@ -865,7 +865,6 @@
           } 
         },
         { name: 'Perisai Warga', price: 500, icon: '🛡️', desc: 'Kebalkan warga 15 detik', action: () => { if (score >= 500) { score -= 500; P.shieldT += 15; sfxLamp(); setFlash('Perisai Warga Aktif!', '#4caf50'); } else { sfxLose(); setFlash('Koin Tidak Cukup!', '#ff5252'); } } },
-        { name: '+30 Detik Waktu', price: 400, icon: '⌚', desc: 'Tambah sisa waktu', action: () => { if (score >= 400) { score -= 400; timer += 30; sfxCollect(); setFlash('Waktu Ditambah!', '#ffeb3b'); } else { sfxLose(); setFlash('Koin Tidak Cukup!', '#ff5252'); } } },
         { name: '+1 Nyawa', price: 800, icon: '❤️', desc: 'Tambah 1 Nyawa (Maks 5)', action: () => { if (score >= 800) { if (lives < 5) { score -= 800; lives++; sfxCollect(); setFlash('Nyawa Bertambah!', '#ff4081'); } else { sfxLose(); setFlash('Nyawa Sudah Penuh!', '#ff5252'); } } else { sfxLose(); setFlash('Koin Tidak Cukup!', '#ff5252'); } } }
       ];
 
