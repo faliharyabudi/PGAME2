@@ -218,7 +218,7 @@
       levelData = LEVELS[currentLevelIdx];
       st = S.PLAY; flash = ''; flashT = 0; lastT = performance.now(); level = currentLevelIdx + 1;
       timer = levelData.time;
-      // playBGM(); // BGM dimatikan - hanya SFX
+      playBGM(); // BGM diaktifkan kembali
       floats = []; combo = 0; comboT = 0; shakeX = 0; shakeY = 0;
       P = { x: W / 2, y: 260, vx: 0, vy: 0, r: 16, inv: 0, blink: true, bt: 0, facingDir: 1, bobT: 0, hasGun: true, gunLevel: 1, bag: [], shieldT: 0 };
       trash = []; lamps = []; cars = []; parts = []; npcs = []; pollClouds = []; raindrops = []; bullets = []; bins = []; 
