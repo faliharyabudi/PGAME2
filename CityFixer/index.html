@@ -591,9 +591,6 @@
         if (n.sickT > 0) {
           n.sickT -= dt;
           n.vx *= 0.4; n.vy *= 0.4; // Melambat parah
-          n.col = '#8bc34a'; // Kulit jadi hijau
-        } else {
-          n.col = '#ffccaa'; // Kulit normal
         }
       });
 
@@ -1119,7 +1116,8 @@
       npcs.forEach(n => {
         const nMoving = Math.abs(n.vx) > 5 || Math.abs(n.vy) > 5;
         n.bobT = (n.bobT || rand(0, 10)) + (nMoving ? 0.16 : 0.04);
-        drawCharacter(n.x, n.y, n.vx, n.vy, n.bobT, n.col, '#ffccaa', false, n.scared, n.facingDir || 1, n.capCol);
+        const skinColor = n.sickT > 0 ? '#8bc34a' : '#ffccaa';
+        drawCharacter(n.x, n.y, n.vx, n.vy, n.bobT, n.col, skinColor, false, n.scared, n.facingDir || 1, n.capCol);
         
         if (P.shieldT > 0) {
           cx.save(); cx.translate(n.x, n.y - 12);
